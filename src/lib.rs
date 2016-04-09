@@ -5,28 +5,42 @@
 extern crate serde_json;
 use serde_json::Value;
 
+/// Errors returned when parsing a JSON representation of a list of rules.
 #[derive(Debug, PartialEq)]
 pub enum Error {
     JSON,
     NotAList,
 }
 
+/// A potential list of resource types being requested.
 #[derive(Debug, PartialEq)]
 pub enum ResourceTypeList {
+    /// All possible types.
     All,
+    /// An explicit list of resource types.
     List(Vec<ResourceType>)
 }
 
+/// The type of resource being requested.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ResourceType {
+    /// A top-level document.
     Document,
+    /// An image subresource.
     Image,
+    /// A CSS stylesheet subresource.
     StyleSheet,
+    /// A JavaScript subresource.
     Script,
+    /// A web font.
     Font,
+    /// An uncategorized request (eg. XMLHttpRequest).
     Raw,
+    /// An SVG document.
     SVGDocument,
+    /// A media resource.
     Media,
+    /// A popup resource.
     Popup,
 }
 
@@ -47,10 +61,14 @@ impl ResourceType {
     }
 }
 
+/// The type of load that is being initiated.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum LoadType {
+    /// Any type.
     All,
+    /// Same-origin with respect to the originating page.
     FirstParty,
+    /// Cross-origin with respect to the originating page.
     ThirdParty,
 }
 
@@ -64,19 +82,30 @@ impl LoadType {
     }
 }
 
+/// Conditions which restrict the set of matches for a particular trigger.
 #[derive(Debug, PartialEq)]
 pub enum Exemption {
+    /// No restrictions.
     None,
+    /// Only trigger if the domain matches one of the included strings.
     If(Vec<String>),
+    /// Trigger unless the domain matches one of the included strings.
     Unless(Vec<String>),
 }
 
+/// A set of filters that determine if a given rule's action is performed.
 #[derive(Debug, PartialEq)]
 pub struct Trigger {
+    /// A simple regex that is matched against the characters in the destination resource's URL.
     url_filter: String,
+    /// Whether the URL filter is compared in a case-sensitive manner.
     url_filter_is_case_sensitive: bool,
+    /// The classes of resources for which this trigger matches.
     resource_type: ResourceTypeList,
+    /// The category of loads for which this trigger matches.
     load_type: LoadType,
+    /// Domains which modify the behaviour of this trigger, either specifically including or
+    /// excluding from the matches based on string comparison.
     exemption: Exemption,
 }
 
@@ -92,11 +121,16 @@ impl Default for Trigger {
     }
 }
 
+/// An action to take when a rule is triggered.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
+    /// Prevent the network request from starting.
     Block,
+    /// Remove any HTTP cookies from the network request before starting it.
     BlockCookies,
+    /// Hide elements of the requesting page based on the given CSS selector.
     CssDisplayNone(String),
+    /// Any previously triggered rules do not have their actions performed.
     IgnorePreviousRules,
 }
 
@@ -126,6 +160,7 @@ impl Action {
 }
 
 #[derive(Debug, PartialEq)]
+/// A single rule, consisting of a condition to trigger this rule, and an action to take.
 pub struct Rule {
     trigger: Trigger,
     action: Action,
