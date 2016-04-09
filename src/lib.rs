@@ -2,7 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+extern crate regex;
 extern crate serde_json;
+use regex::Regex;
 use serde_json::Value;
 
 /// Errors returned when parsing a JSON representation of a list of rules.
@@ -13,7 +15,7 @@ pub enum Error {
 }
 
 /// A potential list of resource types being requested.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ResourceTypeList {
     /// All possible types.
     All,
@@ -80,35 +82,99 @@ impl LoadType {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum DomainExemption {
+    SubdomainMatch(String),
+    DomainMatch(String),
+}
+
+impl DomainExemption {
+    fn from_str(s: &str) -> DomainExemption {
+        if s.starts_with("*") {
+            DomainExemption::SubdomainMatch(s[1..].to_owned())
+        } else {
+            DomainExemption::DomainMatch(s.to_owned())
+        }
+    }
+
+    fn matches(&self, request: &Request) -> bool {
+        let domain = match *self {
+            DomainExemption::SubdomainMatch(ref domain) |
+            DomainExemption::DomainMatch(ref domain) => domain
+        };
+
+        if request.url.find(&format!("://{}", domain)).is_some() {
+            return true;
+        }
+        if let DomainExemption::SubdomainMatch(_) = *self {
+            if request.url.find(&format!(".{}", domain)).is_some() {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
 /// Conditions which restrict the set of matches for a particular trigger.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Exemption {
-    /// No restrictions.
-    None,
     /// Only trigger if the domain matches one of the included strings.
-    If(Vec<String>),
+    If(Vec<DomainExemption>),
     /// Trigger unless the domain matches one of the included strings.
-    Unless(Vec<String>),
+    Unless(Vec<DomainExemption>),
 }
 
 /// A set of filters that determine if a given rule's action is performed.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Trigger {
     /// A simple regex that is matched against the characters in the destination resource's URL.
-    url_filter: String,
-    /// Whether the URL filter is compared in a case-sensitive manner.
-    url_filter_is_case_sensitive: bool,
+    url_filter: Regex,
     /// The classes of resources for which this trigger matches.
     resource_type: ResourceTypeList,
     /// The category of loads for which this trigger matches.
     load_type: Option<LoadType>,
     /// Domains which modify the behaviour of this trigger, either specifically including or
     /// excluding from the matches based on string comparison.
-    exemption: Exemption,
+    exemption: Option<Exemption>,
 }
 
 impl Trigger {
-    fn matches(&self, _request: &Request) -> bool {
+    fn matches(&self, request: &Request) -> bool {
+        if let ResourceTypeList::List(ref types) = self.resource_type {
+            if types.iter().find(|t| **t == request.resource_type).is_none() {
+                return false;
+            }
+        }
+
+        if let Some(ref load_type) = self.load_type {
+            if request.load_type != *load_type {
+                return false;
+            }
+        }
+
+        if self.url_filter.is_match(request.url) {
+            match self.exemption {
+                Some(Exemption::If(ref exemptions)) => {
+                    for condition in exemptions {
+                        if condition.matches(request) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                Some(Exemption::Unless(ref exemptions)) => {
+                    for condition in exemptions {
+                        if condition.matches(request) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                None => return true,
+            }
+        }
+
         false
     }
 }
@@ -116,11 +182,10 @@ impl Trigger {
 impl Default for Trigger {
     fn default() -> Trigger {
         Trigger {
-            url_filter: "".to_owned(),
-            url_filter_is_case_sensitive: false,
+            url_filter: Regex::new("").unwrap(),
             resource_type: ResourceTypeList::All,
             load_type: None,
-            exemption: Exemption::None,
+            exemption: None,
         }
     }
 }
@@ -176,7 +241,7 @@ impl Action {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 /// A single rule, consisting of a condition to trigger this rule, and an action to take.
 pub struct Rule {
     trigger: Trigger,
@@ -193,7 +258,18 @@ pub struct Request<'a> {
     pub load_type: LoadType,
 }
 
+impl<'a> Default for Request<'a> {
+    fn default() -> Request<'static> {
+        Request {
+            url: "",
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
+        }
+    }
+}
+
 /// The action to take for the provided request.
+#[derive(Debug, PartialEq)]
 pub enum Reaction {
     /// Block the request from starting.
     Block,
@@ -234,14 +310,24 @@ pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
             None => continue,
         };
 
-        let url_filter = match trigger_source.get("url-filter").and_then(|u| u.as_string()) {
-            Some(filter) => filter,
-            None => continue,
-        };
-
         let url_filter_is_case_sensitive = trigger_source.get("url-filter-is-case-sensitive")
                                                          .and_then(|u| u.as_boolean())
                                                          .unwrap_or(false);
+
+        let url_filter = match trigger_source.get("url-filter").and_then(|u| u.as_string()) {
+            Some(filter) => {
+                let flag = if url_filter_is_case_sensitive {
+                    "(?i)"
+                } else {
+                    ""
+                };
+                match Regex::new(&format!("{}{}", flag, filter)) {
+                    Ok(filter) => filter,
+                    Err(_) => continue,
+                }
+            }
+            None => continue,
+        };
 
         let resource_type = match trigger_source.get("resource-type").and_then(|r| r.as_array()) {
             Some(list) => {
@@ -268,7 +354,7 @@ pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
                           .and_then(|i| i.as_array())
                           .map(|i| i.iter()
                                     .filter_map(|d| d.as_string())
-                                    .map(|s| s.to_owned())
+                                    .map(|s| DomainExemption::from_str(s))
                                     .collect());
 
         let unless_domain =
@@ -276,7 +362,7 @@ pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
                           .and_then(|u| u.as_array())
                           .map(|u| u.iter()
                                     .filter_map(|d| d.as_string())
-                                    .map(|s| s.to_owned())
+                                    .map(|s| DomainExemption::from_str(s))
                                     .collect());
 
         if if_domain.is_some() && unless_domain.is_some() {
@@ -284,11 +370,11 @@ pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
         }
 
         let exemption = if let Some(list) = if_domain {
-            Exemption::If(list)
+            Some(Exemption::If(list))
         } else if let Some(list) = unless_domain {
-            Exemption::Unless(list)
+            Some(Exemption::Unless(list))
         } else {
-            Exemption::None
+            None
         };
 
         let action = match obj.get("action").and_then(Action::from_json) {
@@ -298,8 +384,7 @@ pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
 
         rules.push(Rule {
             trigger: Trigger {
-                url_filter: url_filter.to_owned(),
-                url_filter_is_case_sensitive: url_filter_is_case_sensitive,
+                url_filter: url_filter,
                 resource_type: resource_type,
                 load_type: load_type,
                 exemption: exemption,

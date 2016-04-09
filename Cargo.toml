@@ -5,3 +5,4 @@ authors = ["Josh Matthews <josh@joshmatthews.net>"]
 
 [dependencies]
 serde_json = "0.7"
+regex = "0.1"
