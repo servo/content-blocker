@@ -64,8 +64,6 @@ impl ResourceType {
 /// The type of load that is being initiated.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum LoadType {
-    /// Any type.
-    All,
     /// Same-origin with respect to the originating page.
     FirstParty,
     /// Cross-origin with respect to the originating page.
@@ -103,10 +101,16 @@ pub struct Trigger {
     /// The classes of resources for which this trigger matches.
     resource_type: ResourceTypeList,
     /// The category of loads for which this trigger matches.
-    load_type: LoadType,
+    load_type: Option<LoadType>,
     /// Domains which modify the behaviour of this trigger, either specifically including or
     /// excluding from the matches based on string comparison.
     exemption: Exemption,
+}
+
+impl Trigger {
+    fn matches(&self, _request: &Request) -> bool {
+        false
+    }
 }
 
 impl Default for Trigger {
@@ -115,7 +119,7 @@ impl Default for Trigger {
             url_filter: "".to_owned(),
             url_filter_is_case_sensitive: false,
             resource_type: ResourceTypeList::All,
-            load_type: LoadType::All,
+            load_type: None,
             exemption: Exemption::None,
         }
     }
@@ -135,6 +139,19 @@ pub enum Action {
 }
 
 impl Action {
+    fn process(&self, reactions: &mut Vec<Reaction>) {
+        match *self {
+            Action::Block =>
+                reactions.push(Reaction::Block),
+            Action::BlockCookies =>
+                reactions.push(Reaction::BlockCookies),
+            Action::CssDisplayNone(ref selector) =>
+                reactions.push(Reaction::HideMatchingElements(selector.clone())),
+            Action::IgnorePreviousRules =>
+                reactions.clear(),
+        }
+    }
+
     fn from_json(v: &Value) -> Option<Action> {
         let v = match v.as_object() {
             Some(v) => v,
@@ -166,6 +183,42 @@ pub struct Rule {
     action: Action,
 }
 
+/// A request that could be filtered.
+pub struct Request<'a> {
+    /// The requested URL.
+    pub url: &'a str,
+    /// The resource type for which this request was initiated.
+    pub resource_type: ResourceType,
+    /// The relationship of this request to the originating document.
+    pub load_type: LoadType,
+}
+
+/// The action to take for the provided request.
+pub enum Reaction {
+    /// Block the request from starting.
+    Block,
+    /// Strip the HTTP cookies from the request.
+    BlockCookies,
+    /// Hide the elements matching the given CSS selector in the originating document.
+    HideMatchingElements(String)
+}
+
+/// Attempt to match the given request against the provided rules. Returns a list
+/// of actions to take in response; an empty list means that the request should
+/// continue unmodified.
+pub fn process_rules_for_request(rules: &[Rule], request: &Request) -> Vec<Reaction> {
+    let mut reactions = vec![];
+    for rule in rules {
+        if rule.trigger.matches(request) {
+            rule.action.process(&mut reactions);
+        }
+    }
+    reactions
+}
+
+/// Parse a string containing a JSON representation of a content blocker list.
+/// Returns a vector of parsed rules, or an error representing the nature of
+/// the invalid input. Any rules missing required fields will be silently ignored.
 pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
     let json_body: Value = try!(serde_json::from_str(body).map_err(|_| Error::JSON));
     let list = try!(json_body.as_array().ok_or(Error::NotAList));
@@ -208,8 +261,7 @@ pub fn parse_list(body: &str) -> Result<Vec<Rule>, Error> {
                                     list.iter()
                                         .filter_map(|l| l.as_string()
                                                          .and_then(|s| LoadType::from_str(s)))
-                                        .next())
-                          .unwrap_or(LoadType::All);
+                                        .next());
 
         let if_domain =
             trigger_source.get("if-domain")

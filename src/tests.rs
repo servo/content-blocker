@@ -1,5 +1,9 @@
-use {Rule, Action, Trigger, Error, LoadType, ResourceType, ResourceTypeList, Exemption};
-use parse_list;
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+use {Rule, Action, Trigger, Error, LoadType, ResourceType, ResourceTypeList, Exemption, Reaction};
+use {Request, parse_list, process_rules_for_request};
 
 #[test]
 fn invalid_json_format() {
@@ -61,7 +65,7 @@ fn load_type() {
         let rule = Rule {
             trigger: Trigger {
                 url_filter: "hi".to_owned(),
-                load_type: type_,
+                load_type: Some(type_),
                 .. Trigger::default()
             },
             action: Action::Block,
