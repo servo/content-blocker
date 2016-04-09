@@ -2,35 +2,57 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use parse::{Error, parse_list_impl};
 use regex::Regex;
-use {Rule, Action, Trigger, Error, LoadType, ResourceType, ResourceTypeList, Exemption, Reaction};
-use {DomainExemption, Request, parse_list, process_rules_for_request};
+use repr::{Rule, Action, Trigger, LoadType, ResourceType, ResourceTypeList, Exemption, Reaction};
+use repr::{DomainExemption, Request, process_rules_for_request_impl};
+
+impl Default for Trigger {
+    fn default() -> Trigger {
+        Trigger {
+            url_filter: Regex::new("").unwrap(),
+            resource_type: ResourceTypeList::All,
+            load_type: None,
+            exemption: None,
+        }
+    }
+}
+
+impl<'a> Default for Request<'a> {
+    fn default() -> Request<'static> {
+        Request {
+            url: "",
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
+        }
+    }
+}
 
 #[test]
 fn invalid_json_format() {
-    assert_eq!(parse_list("whee.fun"), Err(Error::JSON));
-    assert_eq!(parse_list("["), Err(Error::JSON));
-    assert_eq!(parse_list("{ \"action\": {}, \"trigger\": {} }"), Err(Error::NotAList));
+    assert_eq!(parse_list_impl("whee.fun"), Err(Error::JSON));
+    assert_eq!(parse_list_impl("["), Err(Error::JSON));
+    assert_eq!(parse_list_impl("{ \"action\": {}, \"trigger\": {} }"), Err(Error::NotAList));
 }
 
 #[test]
 fn empty_list() {
-    assert_eq!(parse_list("[]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[]"), Ok(vec![]));
 }
 
 #[test]
 fn missing_required_values() {
-    assert_eq!(parse_list("[{ \"action\": {} }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"action\": 5 }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": 5 }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": {} }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": 5} }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"} }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": 5 }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"invalid\" } }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": 5 } }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"css-display-none\" } }]"), Ok(vec![]));
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"css-display-none\", \"selector\": 5 } }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"action\": {} }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"action\": 5 }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": 5 }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": {} }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": 5} }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"} }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": 5 }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"invalid\" } }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": 5 } }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"css-display-none\" } }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"css-display-none\", \"selector\": 5 } }]"), Ok(vec![]));
 }
 
 #[test]
@@ -39,7 +61,8 @@ fn missing_defaults() {
         trigger: Trigger::default(),
         action: Action::Block,
     };
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"}, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"}, \
+                                \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
 }
 
 #[test]
@@ -51,8 +74,9 @@ fn url_filter_is_case_sensitive() {
         },
         action: Action::Block,
     };
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"hi\", \"url-filter-is-case-sensitive\": true\
-                           }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"hi\", \
+                                \"url-filter-is-case-sensitive\": true\
+                                }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
 }
 
 #[test]
@@ -67,9 +91,9 @@ fn load_type() {
             action: Action::Block,
         };
         println!("checking {:?}", type_);
-        assert_eq!(parse_list(&format!("[{{ \"trigger\": {{ \"url-filter\": \"\", \
-                                        \"load-type\": [\"{}\"]\
-                                        }}, \"action\": {{ \"type\": \"block\" }} }}]", name)),
+        assert_eq!(parse_list_impl(&format!("[{{ \"trigger\": {{ \"url-filter\": \"\", \
+                                             \"load-type\": [\"{}\"]\
+                                             }}, \"action\": {{ \"type\": \"block\" }} }}]", name)),
                    Ok(vec![rule]));
     }
 }
@@ -93,9 +117,9 @@ fn resource_type() {
             action: Action::Block,
         };
         println!("checking {:?}", type_);
-        assert_eq!(parse_list(&format!("[{{ \"trigger\": {{ \"url-filter\": \"\", \
-                                        \"resource-type\": [\"{}\", \"document\"]\
-                                        }}, \"action\": {{ \"type\": \"block\" }} }}]", name)),
+        assert_eq!(parse_list_impl(&format!("[{{ \"trigger\": {{ \"url-filter\": \"\", \
+                                             \"resource-type\": [\"{}\", \"document\"]\
+                                             }}, \"action\": {{ \"type\": \"block\" }} }}]", name)),
                    Ok(vec![rule]));
     }
 }
@@ -110,9 +134,9 @@ fn if_domain() {
         },
         action: Action::Block,
     };
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\", \
-                           \"if-domain\": [\"domain\", \"*domain2\"]\
-                           }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\", \
+                                \"if-domain\": [\"domain\", \"*domain2\"]\
+                                }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
 }
 
 #[test]
@@ -125,16 +149,16 @@ fn unless_domain() {
         },
         action: Action::Block,
     };
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\",\
-                           \"unless-domain\": [\"domain\", \"*domain2\"]\
-                           }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\",\
+                                \"unless-domain\": [\"domain\", \"*domain2\"]\
+                                }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![rule]));
 }
 
 #[test]
 fn if_unless_domain() {
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"hi\", \
-                           \"if-domain\": [\"domain\"], \"unless-domain\": [\"domain\"]\
-                           }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![]));
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"hi\", \
+                                \"if-domain\": [\"domain\"], \"unless-domain\": [\"domain\"]\
+                                }, \"action\": { \"type\": \"block\" } }]"), Ok(vec![]));
 }
 
 #[test]
@@ -147,8 +171,8 @@ fn action() {
             action: action.clone(),
         };
         println!("checking {:?}", action);
-        assert_eq!(parse_list(&format!("[{{ \"trigger\": {{ \"url-filter\": \"\"\
-                                        }}, \"action\": {{ \"type\": \"{}\" }} }}]", name)),
+        assert_eq!(parse_list_impl(&format!("[{{ \"trigger\": {{ \"url-filter\": \"\"\
+                                             }}, \"action\": {{ \"type\": \"{}\" }} }}]", name)),
                    Ok(vec![rule]));
     }
 
@@ -156,9 +180,9 @@ fn action() {
         trigger: Trigger::default(),
         action: Action::CssDisplayNone("selector".to_owned()),
     };
-    assert_eq!(parse_list("[{ \"trigger\": { \"url-filter\": \"\"\
-                           }, \"action\": { \"type\": \"css-display-none\",\
-                           \"selector\": \"selector\" } }]"),
+    assert_eq!(parse_list_impl("[{ \"trigger\": { \"url-filter\": \"\"\
+                                }, \"action\": { \"type\": \"css-display-none\",\
+                                \"selector\": \"selector\" } }]"),
                Ok(vec![rule]));
 }
 
@@ -180,7 +204,7 @@ fn url_filter_matches() {
             .. Request::default()
         };
         println!("checking {:?}", url);
-        let reactions = process_rules_for_request(&[rule.clone()], &request);
+        let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
         assert_eq!(reactions, expected);
     }
 }
@@ -203,7 +227,7 @@ fn caseless_url_filter_matches() {
             .. Request::default()
         };
         println!("checking {:?}", url);
-        let reactions = process_rules_for_request(&[rule.clone()], &request);
+        let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
         assert_eq!(reactions, expected);
     }
 }
@@ -228,7 +252,7 @@ fn resource_type_matches() {
             .. Request::default()
         };
         println!("checking {:?}", type_);
-        let reactions = process_rules_for_request(&[rule.clone()], &request);
+        let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
         assert_eq!(reactions, expected);
     }
 }
@@ -252,7 +276,7 @@ fn load_type_matches() {
             .. Request::default()
         };
         println!("checking {:?}", type_);
-        let reactions = process_rules_for_request(&[rule.clone()], &request);
+        let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
         assert_eq!(reactions, expected);
     }
 }
@@ -279,7 +303,7 @@ fn if_domain_matches() {
             .. Request::default()
         };
         println!("checking {:?}", url);
-        let reactions = process_rules_for_request(&[rule.clone()], &request);
+        let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
         assert_eq!(reactions, expected);
     }
 }
@@ -307,7 +331,7 @@ fn unless_domain_matches() {
             .. Request::default()
         };
         println!("checking {:?}", url);
-        let reactions = process_rules_for_request(&[rule.clone()], &request);
+        let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
         assert_eq!(reactions, expected);
     }
 }
@@ -370,7 +394,7 @@ fn multiple_rules_match() {
             .. Request::default()
         };
         println!("checking {:?}", url);
-        let reactions = process_rules_for_request(&rules, &request);
+        let reactions = process_rules_for_request_impl(&rules, &request);
         assert_eq!(reactions, expected);
     }
 }
