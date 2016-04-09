@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#[deny(missing_docs)]
+
 extern crate regex;
 extern crate serde_json;
 
@@ -16,6 +18,7 @@ use repr::{Rule, process_rules_for_request_impl};
 #[cfg(test)]
 mod tests;
 
+/// An encapsulation of a list of parsed rules.
 pub struct RuleList(Vec<Rule>);
 
 /// Attempt to match the given request against the provided rules. Returns a list
