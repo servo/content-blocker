@@ -10,7 +10,9 @@ use serde_json::{self, Value};
 /// Errors returned when parsing a JSON representation of a list of rules.
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    /// A JSON parsing error occurred.
     JSON,
+    /// The root JSON object was not a list.
     NotAList,
 }
 
