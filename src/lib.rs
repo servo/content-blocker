@@ -9,6 +9,7 @@
 
 extern crate regex;
 extern crate serde_json;
+extern crate url;
 
 mod parse;
 mod repr;

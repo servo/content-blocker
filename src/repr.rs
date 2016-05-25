@@ -3,11 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use regex::Regex;
+use std::cmp::Ordering;
+use url::Url;
 
 /// A request that could be filtered.
 pub struct Request<'a> {
     /// The requested URL.
-    pub url: &'a str,
+    pub url: &'a Url,
     /// The resource type for which this request was initiated.
     pub resource_type: ResourceType,
     /// The relationship of this request to the originating document.
@@ -56,38 +58,46 @@ pub enum LoadType {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum DomainExemption {
-    SubdomainMatch(String),
-    DomainMatch(String),
+pub struct DomainMatcher {
+    pub exact: Box<[String]>,
+    pub subdomain: Box<[String]>,
 }
 
-impl DomainExemption {
-    fn matches(&self, request: &Request) -> bool {
-        let domain = match *self {
-            DomainExemption::SubdomainMatch(ref domain) |
-            DomainExemption::DomainMatch(ref domain) => domain
+impl DomainMatcher {
+    fn matches(&self, url: &Url) -> bool {
+        let domain = match url.domain() {
+            Some(domain) => domain,
+            None => return false,
         };
-
-        if request.url.find(&format!("://{}", domain)).is_some() {
-            return true;
-        }
-        if let DomainExemption::SubdomainMatch(_) = *self {
-            if request.url.find(&format!(".{}", domain)).is_some() {
+        for candidate in &*self.exact {
+            if domain == candidate {
                 return true;
             }
         }
-
+        for suffix in &*self.subdomain {
+            match domain.len().cmp(&suffix.len()) {
+                Ordering::Equal if domain == suffix => return true,
+                Ordering::Greater => {
+                    if domain.as_bytes()[domain.len() - suffix.len() - 1] == b'.' {
+                        if domain.ends_with(suffix) {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         false
     }
 }
 
 /// Conditions which restrict the set of matches for a particular trigger.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Exemption {
+pub enum DomainConstraint {
     /// Only trigger if the domain matches one of the included strings.
-    If(Vec<DomainExemption>),
+    If(DomainMatcher),
     /// Trigger unless the domain matches one of the included strings.
-    Unless(Vec<DomainExemption>),
+    Unless(DomainMatcher),
 }
 
 /// A set of filters that determine if a given rule's action is performed.
@@ -101,7 +111,7 @@ pub struct Trigger {
     pub load_type: Option<LoadType>,
     /// Domains which modify the behaviour of this trigger, either specifically including or
     /// excluding from the matches based on string comparison.
-    pub exemption: Option<Exemption>,
+    pub domain_constraint: Option<DomainConstraint>,
 }
 
 impl Trigger {
@@ -118,23 +128,13 @@ impl Trigger {
             }
         }
 
-        if self.url_filter.is_match(request.url) {
-            match self.exemption {
-                Some(Exemption::If(ref exemptions)) => {
-                    for condition in exemptions {
-                        if condition.matches(request) {
-                            return true;
-                        }
-                    }
-                    return false;
+        if self.url_filter.is_match(request.url.as_str()) {
+            match self.domain_constraint {
+                Some(DomainConstraint::If(ref matcher)) => {
+                    return matcher.matches(&request.url);
                 }
-                Some(Exemption::Unless(ref exemptions)) => {
-                    for condition in exemptions {
-                        if condition.matches(request) {
-                            return false;
-                        }
-                    }
-                    return true;
+                Some(DomainConstraint::Unless(ref matcher)) => {
+                    return !matcher.matches(&request.url);
                 }
                 None => return true,
             }
