@@ -4,8 +4,10 @@
 
 use parse::{Error, parse_list_impl};
 use regex::Regex;
-use repr::{Rule, Action, Trigger, LoadType, ResourceType, ResourceTypeList, Exemption, Reaction};
-use repr::{DomainExemption, Request, process_rules_for_request_impl};
+use repr::{Action, DomainConstraint, DomainMatcher, LoadType, Reaction};
+use repr::{Request, ResourceType, ResourceTypeList, Rule};
+use repr::{Trigger, process_rules_for_request_impl};
+use url::Url;
 
 impl Default for Trigger {
     fn default() -> Trigger {
@@ -13,17 +15,7 @@ impl Default for Trigger {
             url_filter: Regex::new("").unwrap(),
             resource_type: ResourceTypeList::All,
             load_type: None,
-            exemption: None,
-        }
-    }
-}
-
-impl<'a> Default for Request<'a> {
-    fn default() -> Request<'static> {
-        Request {
-            url: "",
-            resource_type: ResourceType::Document,
-            load_type: LoadType::FirstParty,
+            domain_constraint: None,
         }
     }
 }
@@ -128,8 +120,9 @@ fn resource_type() {
 fn if_domain() {
     let rule = Rule {
         trigger: Trigger {
-            exemption: Some(Exemption::If(vec![DomainExemption::DomainMatch("domain".to_owned()),
-                                               DomainExemption::SubdomainMatch("domain2".to_owned())])),
+            domain_constraint: Some(
+                DomainConstraint::If(
+                    DomainMatcher::new(&["domain", "*domain2"]))),
             .. Trigger::default()
         },
         action: Action::Block,
@@ -143,8 +136,9 @@ fn if_domain() {
 fn unless_domain() {
     let rule = Rule {
         trigger: Trigger {
-            exemption: Some(Exemption::Unless(vec![DomainExemption::DomainMatch("domain".to_owned()),
-                                                   DomainExemption::SubdomainMatch("domain2".to_owned())])),
+            domain_constraint: Some(
+                DomainConstraint::Unless(
+                    DomainMatcher::new(&["domain", "*domain2"]))),
             .. Trigger::default()
         },
         action: Action::Block,
@@ -200,8 +194,9 @@ fn url_filter_matches() {
                               ("https://domain.org/test/page1.html", &[Reaction::Block][..]),
                               ("http://www.domain.org/test/page1.html", &[][..])] {
         let request = Request {
-            url: url,
-            .. Request::default()
+            url: &Url::parse(url).unwrap(),
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
         };
         println!("checking {:?}", url);
         let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
@@ -223,8 +218,9 @@ fn caseless_url_filter_matches() {
                               ("https://domain.ORG/test/page1.html", &[Reaction::Block][..]),
                               ("http://www.domain.org/test/page1.html", &[][..])] {
         let request = Request {
-            url: url,
-            .. Request::default()
+            url: &Url::parse(url).unwrap(),
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
         };
         println!("checking {:?}", url);
         let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
@@ -247,9 +243,9 @@ fn resource_type_matches() {
                                 (ResourceType::Media, &[Reaction::Block][..]),
                                 (ResourceType::Raw, &[Reaction::Block][..])] {
         let request = Request {
-            url: "http://domain.org/test/page1.html",
+            url: &Url::parse("http://domain.org/test/page1.html").unwrap(),
             resource_type: type_,
-            .. Request::default()
+            load_type: LoadType::FirstParty,
         };
         println!("checking {:?}", type_);
         let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
@@ -271,9 +267,9 @@ fn load_type_matches() {
     for &(type_, expected) in &[(LoadType::FirstParty, &[Reaction::Block][..]),
                                 (LoadType::ThirdParty, &[][..])] {
         let request = Request {
-            url: "http://domain.org/test/page1.html",
+            url: &Url::parse("http://domain.org/test/page1.html").unwrap(),
+            resource_type: ResourceType::Document,
             load_type: type_,
-            .. Request::default()
         };
         println!("checking {:?}", type_);
         let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
@@ -286,8 +282,9 @@ fn if_domain_matches() {
     let rule = Rule {
         trigger: Trigger {
             url_filter: Regex::new("ad.html").unwrap(),
-            exemption: Some(Exemption::If(vec![DomainExemption::DomainMatch("bad.org".to_owned()),
-                                               DomainExemption::SubdomainMatch("verybad.org".to_owned())])),
+            domain_constraint: Some(
+                DomainConstraint::If(
+                    DomainMatcher::new(&["bad.org", "*verybad.org"]))),
             .. Trigger::default()
         },
         action: Action::Block,
@@ -297,10 +294,12 @@ fn if_domain_matches() {
                               ("http://bad.org/ad.html", &[Reaction::Block][..]),
                               ("http://ok.bad.org/ad.html", &[][..]),
                               ("http://verybad.org/ad.html", &[Reaction::Block][..]),
-                              ("http://notok.verybad.org/ad.html", &[Reaction::Block][..])] {
+                              ("http://notok.verybad.org/ad.html", &[Reaction::Block][..]),
+                              ("http://verybad.org.good.org/ad.html", &[])] {
         let request = Request {
-            url: url,
-            .. Request::default()
+            url: &Url::parse(url).unwrap(),
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
         };
         println!("checking {:?}", url);
         let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
@@ -313,8 +312,9 @@ fn unless_domain_matches() {
     let rule = Rule {
         trigger: Trigger {
             url_filter: Regex::new("ad.html").unwrap(),
-            exemption: Some(Exemption::Unless(vec![DomainExemption::DomainMatch("bad.org".to_owned()),
-                                                   DomainExemption::SubdomainMatch("verybad.org".to_owned())])),
+            domain_constraint: Some(
+                DomainConstraint::Unless(
+                    DomainMatcher::new(&["bad.org", "*verybad.org"]))),
             .. Trigger::default()
         },
         action: Action::Block,
@@ -327,8 +327,9 @@ fn unless_domain_matches() {
                               ("http://verybad.org/ad.html", &[][..]),
                               ("http://notok.verybad.org/ad.html", &[][..])] {
         let request = Request {
-            url: url,
-            .. Request::default()
+            url: &Url::parse(url).unwrap(),
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
         };
         println!("checking {:?}", url);
         let reactions = process_rules_for_request_impl(&[rule.clone()], &request);
@@ -390,8 +391,9 @@ fn multiple_rules_match() {
                               ("http://domain.org/ok.html", &[][..]),
                               ("http://domain.org/ok.html?except_this=1", &[Reaction::BlockCookies][..])] {
         let request = Request {
-            url: url,
-            .. Request::default()
+            url: &Url::parse(url).unwrap(),
+            resource_type: ResourceType::Document,
+            load_type: LoadType::FirstParty,
         };
         println!("checking {:?}", url);
         let reactions = process_rules_for_request_impl(&rules, &request);

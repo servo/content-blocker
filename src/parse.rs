@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use regex::Regex;
-use repr::{ResourceType, LoadType, DomainExemption, Action, Rule, ResourceTypeList, Exemption};
-use repr::Trigger;
+use repr::{Action, DomainConstraint, DomainMatcher, LoadType, ResourceType};
+use repr::{ResourceTypeList, Rule, Trigger};
 use serde_json::{self, Value};
 
 /// Errors returned when parsing a JSON representation of a list of rules.
@@ -43,12 +43,23 @@ impl LoadType {
     }
 }
 
-impl DomainExemption {
-    fn from_str(s: &str) -> DomainExemption {
-        if s.starts_with("*") {
-            DomainExemption::SubdomainMatch(s[1..].to_owned())
-        } else {
-            DomainExemption::DomainMatch(s.to_owned())
+impl DomainMatcher {
+    pub fn new<'a, T, Iter>(iter: Iter) -> DomainMatcher
+        where T: AsRef<str>, Iter: IntoIterator<Item=T>
+    {
+        let mut exact = vec![];
+        let mut subdomain = vec![];
+        for domain in iter {
+            let domain = domain.as_ref();
+            if domain.starts_with("*") {
+                subdomain.push(domain[1..].to_owned());
+            } else {
+                exact.push(domain.to_owned());
+            }
+        }
+        DomainMatcher {
+            exact: exact.into_boxed_slice(),
+            subdomain: subdomain.into_boxed_slice(),
         }
     }
 }
@@ -138,27 +149,23 @@ pub fn parse_list_impl(body: &str) -> Result<Vec<Rule>, Error> {
         let if_domain =
             trigger_source.get("if-domain")
                           .and_then(|i| i.as_array())
-                          .map(|i| i.iter()
-                                    .filter_map(|d| d.as_string())
-                                    .map(|s| DomainExemption::from_str(s))
-                                    .collect());
+                          .map(|i| i.iter().filter_map(|d| d.as_string()))
+                          .map(DomainMatcher::new);
 
         let unless_domain =
             trigger_source.get("unless-domain")
                           .and_then(|u| u.as_array())
-                          .map(|u| u.iter()
-                                    .filter_map(|d| d.as_string())
-                                    .map(|s| DomainExemption::from_str(s))
-                                    .collect());
+                          .map(|i| i.iter().filter_map(|d| d.as_string()))
+                          .map(DomainMatcher::new);
 
         if if_domain.is_some() && unless_domain.is_some() {
             continue;
         }
 
-        let exemption = if let Some(list) = if_domain {
-            Some(Exemption::If(list))
+        let domain_constraint = if let Some(list) = if_domain {
+            Some(DomainConstraint::If(list))
         } else if let Some(list) = unless_domain {
-            Some(Exemption::Unless(list))
+            Some(DomainConstraint::Unless(list))
         } else {
             None
         };
@@ -173,7 +180,7 @@ pub fn parse_list_impl(body: &str) -> Result<Vec<Rule>, Error> {
                 url_filter: url_filter,
                 resource_type: resource_type,
                 load_type: load_type,
-                exemption: exemption,
+                domain_constraint: domain_constraint,
             },
             action: action,
         });

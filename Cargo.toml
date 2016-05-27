@@ -1,6 +1,6 @@
 [package]
 name = "content-blocker"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Josh Matthews <josh@joshmatthews.net>"]
 license = "MPL-2.0"
 description = "A library for parsing Safari-style content blocking lists and dynamically evaluating the rules against against requests."
@@ -9,3 +9,4 @@ repository = "https://github.com/jdm/content-blocker"
 [dependencies]
 serde_json = "0.7"
 regex = "0.1"
+url = "1.0"
