@@ -71,13 +71,13 @@ impl Action {
             None => return None,
         };
 
-        v.get("type").and_then(|t| t.as_string()).and_then(|t| {
+        v.get("type").and_then(|t| t.as_str()).and_then(|t| {
             Some(match t {
                 "block" => Action::Block,
                 "block-cookies" => Action::BlockCookies,
                 "ignore-previous-rules" => Action::IgnorePreviousRules,
                 "css-display-none" => {
-                    let selector = match v.get("selector").and_then(|s| s.as_string()) {
+                    let selector = match v.get("selector").and_then(|s| s.as_str()) {
                         Some(s) => s,
                         None => return None,
                     };
@@ -108,10 +108,10 @@ pub fn parse_list_impl(body: &str) -> Result<Vec<Rule>, Error> {
         };
 
         let url_filter_is_case_sensitive = trigger_source.get("url-filter-is-case-sensitive")
-                                                         .and_then(|u| u.as_boolean())
+                                                         .and_then(|u| u.as_bool())
                                                          .unwrap_or(false);
 
-        let url_filter = match trigger_source.get("url-filter").and_then(|u| u.as_string()) {
+        let url_filter = match trigger_source.get("url-filter").and_then(|u| u.as_str()) {
             Some(filter) => {
                 let flag = if url_filter_is_case_sensitive {
                     "(?i)"
@@ -130,7 +130,7 @@ pub fn parse_list_impl(body: &str) -> Result<Vec<Rule>, Error> {
             Some(list) => {
                 ResourceTypeList::List(
                     list.iter()
-                        .filter_map(|r| r.as_string()
+                        .filter_map(|r| r.as_str()
                                          .and_then(|s| ResourceType::from_str(s)))
                         .collect())
             }
@@ -142,20 +142,20 @@ pub fn parse_list_impl(body: &str) -> Result<Vec<Rule>, Error> {
                           .and_then(|l| l.as_array())
                           .and_then(|list|
                                     list.iter()
-                                        .filter_map(|l| l.as_string()
+                                        .filter_map(|l| l.as_str()
                                                          .and_then(|s| LoadType::from_str(s)))
                                         .next());
 
         let if_domain =
             trigger_source.get("if-domain")
                           .and_then(|i| i.as_array())
-                          .map(|i| i.iter().filter_map(|d| d.as_string()))
+                          .map(|i| i.iter().filter_map(|d| d.as_str()))
                           .map(DomainMatcher::new);
 
         let unless_domain =
             trigger_source.get("unless-domain")
                           .and_then(|u| u.as_array())
-                          .map(|i| i.iter().filter_map(|d| d.as_string()))
+                          .map(|i| i.iter().filter_map(|d| d.as_str()))
                           .map(DomainMatcher::new);
 
         if if_domain.is_some() && unless_domain.is_some() {
