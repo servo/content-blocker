@@ -101,7 +101,7 @@ pub enum DomainConstraint {
 }
 
 /// A set of filters that determine if a given rule's action is performed.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Trigger {
     /// A simple regex that is matched against the characters in the destination resource's URL.
     pub url_filter: Regex,
@@ -141,6 +141,15 @@ impl Trigger {
         }
 
         false
+    }
+}
+
+impl PartialEq for Trigger {
+    fn eq(&self, other: &Trigger) -> bool {
+        self.url_filter.as_str() == other.url_filter.as_str() &&
+            self.resource_type == other.resource_type &&
+            self.load_type == other.load_type &&
+            self.domain_constraint == other.domain_constraint
     }
 }
 
